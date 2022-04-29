@@ -2,10 +2,12 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
+from discord_webhook import DiscordWebhook
 import time
 import re
+import configparser
 
-def find_airline_tickets():
+def find_airline_tickets(driver):
     SCROLL_PAUSE_SEC = 3
     RELOAD_SEC = 1
     cards = []
@@ -35,7 +37,7 @@ def find_airline_tickets():
 
 def check_function_process_time(start_time):
     process_time = time.time() - start_time
-    PROCESS_OVER_TIME = 60 # 1분
+    PROCESS_OVER_TIME = 180 # 3분
 
     if process_time > PROCESS_OVER_TIME:
         raise RuntimeError("정상 프로세스 시간을 초과하였습니다.")
@@ -54,10 +56,16 @@ def is_match(start_time, price):
     start_hour = start_time[0:5].split(":")[0]
     p = price[0:-1].split(",")[0]
 
-    if int(start_hour) > MINIMUM_HOUR and int(p) < MAX_PRICE:
+    if int(start_hour) >= MINIMUM_HOUR and int(p) < MAX_PRICE:
         return True;
 
     return False;
+
+def send_message(message):
+    DISCORD_WEBHOOK_URL = "XXX"
+
+    webhook = DiscordWebhook(url=DISCORD_WEBHOOK_URL, content=message)
+    response = webhook.execute()
 
 if __name__ == '__main__':
     URL = "https://flight.naver.com/flights/domestic/CJU-SEL-20220515?adult=1&fareType=YC"
@@ -68,11 +76,31 @@ if __name__ == '__main__':
 
     try:
         while True:
-            airline_tickets = find_airline_tickets()
+            airline_tickets = find_airline_tickets(driver)
             latest_air_line = airline_tickets[len(airline_tickets) - 1]
-            result_dict = find_start_time_and_price(latest_air_line.text)
-            result = is_match(result_dict['start_time'], result_dict['price'])
-            print(result_dict['start_time'], result_dict['price'])
-            print(result)
+
+            print("---------------------------------------------------\n")
+
+            match_result = False
+
+            for ticket in airline_tickets[-5:]:
+                result_dict = find_start_time_and_price(ticket.text)
+                result = is_match(result_dict['start_time'], result_dict['price'])
+                print(result_dict['start_time'], result_dict['price'], result)
+
+                if result is True:
+                    match_result = True
+                    message = f"출발 시간: {result_dict['start_time'][0:5]} 가격: {result_dict['price']} \n URL: {URL}"
+                    send_message(message)
+
+            print("\n---------------------------------------------------\n")
+
+            if match_result is True:
+                time.sleep(300)
+
+            driver.refresh()
     except RuntimeError as error:
-        print(str(error))
+        message = "------------------------------------- \n" \
+                  + "프로세스가 중단되었습니다. \n" + f"에러 메시지: {str(error)}" \
+                  + "\n------------------------------------- \n"
+        send_message(message)
